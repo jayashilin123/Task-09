@@ -1,0 +1,179 @@
+---
+title: "Tissue Gene Expression"
+output: github_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r include=FALSE}
+library(dslabs)
+library(caret)
+library(RColorBrewer)
+library(rafalib)
+```
+
+Gene expression of 7 tissues: cerebellum, colon, endometrium, hippocampus, kidney, liver, placenta
+with few genes
+```{r}
+load("tissuesGeneExpression.rda")
+```
+
+Plot with multidimentional scaling
+```{r}
+# transpose and get the rowwise distance
+d <- dist(t(e))
+mds <- cmdscale(d)
+```
+
+```{r include=FALSE}
+plot(mds[,1], mds[,2], col=palette(brewer.pal(7, "Dark2"))[as.fumeric(tissue)])
+```
+
+```{r}
+plot(mds[,1], mds[,2], bg=palette(brewer.pal(7, "Dark2"))[as.fumeric(tissue)],pch=21,
+     xlab="First dimension", ylab="Second dimension",
+     cex=2) 
+legend("bottomright", legend = levels(as.factor(tissue)),
+       col=seq(along=levels(as.factor(tissue))), pch=15,cex=0.65)
+```
+
+
+```{r}
+# image the gene expression
+image(e[1:100,]) 
+```
+
+Yellow high expression, red low expression, colour represents the number, 
+each pixel/square represent each gene.
+
+Pick few genes to demonstrate the gene expression with help of image pixels
+```{r include=FALSE}
+library(genefilter)
+```
+
+```{r}
+rv <- rowVars(e)
+# taking top 40 genes that vary the most, most rowvariance
+idx <- order(-rv)[1:40] 
+```
+
+Heatmap of a subset of the 40 gene showing most variation. Here genes are clustered and samples are clustered. Colours shows the measurments, yellow are most expressed in that particular cluster.
+
+```{r}
+heatmap(e[idx, ]) 
+```
+
+```{r include=FALSE}
+library(RColorBrewer)
+library(gplots)
+library(rafalib)
+# green to blue, 9 color
+# heatmap(e[idx, ], col=hmcol) # high expression=blue, low expression green
+```
+
+Each tissue get diff colors. green to blue, high expression=blue, low expression green
+```{r}
+hmcol <- colorRampPalette(brewer.pal(9, "GnBu"))(100)
+cols <- palette(brewer.pal(7, "Dark2"))[as.fumeric(tissue)]
+col_tissue <- cbind(colnames(e), tissue, cols)
+head(col_tissue)
+heatmap.2(e[idx, ], labCol = tissue,
+          trace= "none",
+          ColSideColors = cols, # colum side colors
+          col=hmcol)
+```
+
+
+### Modeling with Decision tree
+```{r include=FALSE}
+library(dslabs)
+library(caret)
+```
+
+```{r}
+data("tissue_gene_expression")
+```
+
+```{r}
+set.seed(1991)
+
+fit <- with(tissue_gene_expression, 
+            train(x, y, method = "rpart",
+                  tuneGrid = data.frame(cp = seq(0, 0.1, 0.01))))
+ggplot(fit)
+```
+
+```{r}
+confusionMatrix(fit)
+
+plot(fit$finalModel, margin = 0.1) 
+text(fit$finalModel, cex = 0.75)
+```
+
+### Modeling with Hierarchial clustering
+```{r include=FALSE}
+library(tissuesGeneExpression)
+library(rafalib)
+```
+
+```{r}
+data(tissuesGeneExpression)
+d <- dist(t(e))
+hc <- hclust(d)
+# class(hc)
+# plot(hc, cex=0.5, label=tissue)
+```
+
+```{r}
+mypar(1,1)
+myplclust(hc, cex=0.5, label=tissue,
+          lab.col=as.fumeric(tissue))
+abline(h=120)
+cl <- cutree(hc, h=120)
+table(true=tissue, cluster=cl)
+```
+
+### Modeling with K nearest neighbour KNN
+```{r include=FALSE}
+library(dslabs)
+data("tissue_gene_expression")
+```
+
+```{r}
+dim(as.matrix(tissue_gene_expression))
+x <- tissue_gene_expression$x
+rownames(x) <- NULL
+dim(as.matrix(x))
+y <- tissue_gene_expression$y
+dim(as.matrix(y))
+x <- as.data.frame(x)
+y <- as.data.frame(y)
+```
+
+```{r}
+ks <- c(1, 3, 5, 7, 9, 11)
+set.seed(1)
+accuracy <- sapply(ks, function(k){
+  test_index <- createDataPartition(y$y, times=1, p=0.5, list = FALSE)
+  #sample(1:nrow(y),0.5*nrow(y))
+  test_y <- y[test_index, ]
+  train_y <- y[-test_index, ]
+  test_x <- x[test_index, ]
+  train_x <- x[-test_index, ]
+  fit <- knn3(train_x, train_y, k=k)
+  
+  y_hat <- predict(fit, test_x, type = "class") #%>% factor(levels = levels(train_y))
+  
+  confusionMatrix(data = y_hat, reference = test_y)$overall["Accuracy"] 
+})
+
+accuracy
+```
+
+```{r}
+plot(ks, accuracy)
+```
+
+####### Ref: Rafael Irizarry & Michael Love, High dimensional data analysis, Harvardx, edx.
